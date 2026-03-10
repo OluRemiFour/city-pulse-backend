@@ -52,14 +52,16 @@ statsRouter.get('/', async (_req: Request, res: Response) => {
 
     // Format trend chart for recharts (pivot category into columns per day)
     // Shape: [{ name: 'Mon', 'Road Infrastructure': 12, 'Waste Management': 8 }]
-    const trendMap: Record<string, Record<string, number>> = {};
+    const trendMap: Record<string, any> = {};
     for (const row of recentTrend) {
       const label = new Date(row.day).toLocaleDateString('en-US', { weekday: 'short' });
-      if (!trendMap[row.day]) trendMap[row.day] = { day: row.day, name: label };
+      if (!trendMap[row.day]) {
+        trendMap[row.day] = { day: row.day, name: label };
+      }
       trendMap[row.day][row.category] = Number(row.count);
     }
     const trendChart = Object.values(trendMap).sort((a, b) =>
-      new Date(a.day as string).getTime() - new Date(b.day as string).getTime()
+      new Date(a.day).getTime() - new Date(b.day).getTime()
     );
 
     // Stat cards array — matches the STATS shape in mockData.ts
@@ -114,9 +116,9 @@ statsRouter.get('/', async (_req: Request, res: Response) => {
       hotspots,
       aiInsights,
       recentSeverity: {
-        high:   recent7.filter(c => c.severity === 'High').length,
-        medium: recent7.filter(c => c.severity === 'Medium').length,
-        low:    recent7.filter(c => c.severity === 'Low').length,
+        high:   recent7.filter((c: any) => c.severity === 'High').length,
+        medium: recent7.filter((c: any) => c.severity === 'Medium').length,
+        low:    recent7.filter((c: any) => c.severity === 'Low').length,
       },
     });
   } catch (err) {
