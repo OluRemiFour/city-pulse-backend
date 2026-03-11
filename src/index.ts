@@ -17,6 +17,7 @@
 
 import 'dotenv/config';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 
@@ -25,6 +26,10 @@ import { statsRouter       } from './routes/stats.js';
 import { insightsRouter    } from './routes/insights.js';
 import { scrapeRouter      } from './routes/scrape.js';
 import { requestLogger     } from './middleware/logger.js';
+
+// ESM-compatible __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
 
 const app  = express();
 const PORT = parseInt(process.env.PORT ?? '4000', 10);
@@ -61,14 +66,16 @@ app.use('/api/insights',   insightsRouter);
 app.use('/api/scrape',     scrapeRouter);
 
 // Serve static files from frontend build
-app.use(express.static(path.resolve(__dirname, '../../frontend/dist')));
+// In production on Render: src/dist/index.js is running, frontend is in project root/frontend/dist
+const FRONTEND_PATH = path.resolve(__dirname, '../../frontend/dist');
+app.use(express.static(FRONTEND_PATH));
 
 // Fallback route for SPA - serve index.html for any non-API request
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/health')) {
     return next();
   }
-  res.sendFile(path.resolve(__dirname, '../../frontend/dist/index.html'));
+  res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
 });
 // ── 404 handler ───────────────────────────────────────────────
 app.use((_req, res) => {
