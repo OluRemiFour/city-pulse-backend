@@ -13,6 +13,26 @@ const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const BATCH_SIZE = 50;
 const DELAY_MS = 1000; // Between each API call
+async function withRetry(fn, retries = 3, delay = 1000) {
+    let lastErr;
+    for (let i = 0; i < retries; i++) {
+        try {
+            return await fn();
+        }
+        catch (err) {
+            lastErr = err;
+            const status = err.status || (err.error && err.error.code);
+            if (status === 503 || status === 429) {
+                const wait = delay * Math.pow(2, i);
+                console.warn(`\n    [AI Retry] Attempt ${i + 1} failed with ${status}. Retrying in ${wait}ms...`);
+                await new Promise(r => setTimeout(r, wait));
+                continue;
+            }
+            throw err;
+        }
+    }
+    throw lastErr;
+}
 async function analyzeOne(complaint) {
     const prompt = `Analyze this Montgomery, AL city complaint and return ONLY valid JSON (no markdown):
 
@@ -33,23 +53,25 @@ Severity guide:
 - High: Safety risk, infrastructure failure, health hazard, or no resolution for 30+ days
 - Medium: Ongoing nuisance, degraded service, requires attention within a week
 - Low: Minor issue, cosmetic, or already being addressed`;
-    const response = await genai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config: {
-            maxOutputTokens: 250,
-            temperature: 0.1,
-        },
+    return withRetry(async () => {
+        const response = await genai.models.generateContent({
+            model: GEMINI_MODEL,
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            config: {
+                maxOutputTokens: 250,
+                temperature: 0.1,
+            },
+        });
+        const raw = (response.text ?? '').replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(raw);
+        return {
+            severity: ['High', 'Medium', 'Low'].includes(parsed.severity) ? parsed.severity : 'Low',
+            summary: (parsed.summary ?? complaint.text.slice(0, 120)),
+            sentiment: ['Urgent', 'Frustrated', 'Neutral', 'Informational'].includes(parsed.sentiment)
+                ? parsed.sentiment : 'Neutral',
+            confidence_score: Math.min(1, Math.max(0, Number(parsed.confidence_score) || 0.75)),
+        };
     });
-    const raw = (response.text ?? '').replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(raw);
-    return {
-        severity: ['High', 'Medium', 'Low'].includes(parsed.severity) ? parsed.severity : 'Low',
-        summary: (parsed.summary ?? complaint.text.slice(0, 120)),
-        sentiment: ['Urgent', 'Frustrated', 'Neutral', 'Informational'].includes(parsed.sentiment)
-            ? parsed.sentiment : 'Neutral',
-        confidence_score: Math.min(1, Math.max(0, Number(parsed.confidence_score) || 0.75)),
-    };
 }
 async function main() {
     console.log('╔══════════════════════════════════════════╗');
@@ -62,8 +84,8 @@ async function main() {
     // Count total unanalyzed
     const { count: totalUnanalyzed } = await supabase
         .from('complaints')
-        .select('id', { count: 'exact', head: true })
-        .not('id', 'in', `(SELECT complaint_id FROM analysis)`);
+        .select('id, analysis!left(id)', { count: 'exact', head: true })
+        .is('analysis', null);
     console.log(`📊 Unanalyzed complaints: ${totalUnanalyzed ?? '?'}`);
     console.log(`⚡ Processing up to ${BATCH_SIZE} per run\n`);
     // Fetch a batch of unanalyzed complaints (with their category name via view)

@@ -15,6 +15,7 @@
 //   GET  /api/scrape/jobs         — scrape audit log
 // ============================================================
 import 'dotenv/config';
+import path from 'path';
 import express from 'express';
 import cors from 'cors';
 import { complaintsRouter } from './routes/complaints.js';
@@ -51,6 +52,15 @@ app.use('/api/complaints', complaintsRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/insights', insightsRouter);
 app.use('/api/scrape', scrapeRouter);
+// Serve static files from frontend build
+app.use(express.static(path.resolve(__dirname, '../../frontend/dist')));
+// Fallback route for SPA - serve index.html for any non-API request
+app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/health')) {
+        return next();
+    }
+    res.sendFile(path.resolve(__dirname, '../../frontend/dist/index.html'));
+});
 // ── 404 handler ───────────────────────────────────────────────
 app.use((_req, res) => {
     res.status(404).json({ error: 'Route not found' });
